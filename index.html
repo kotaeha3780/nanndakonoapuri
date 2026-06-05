@@ -14,6 +14,7 @@
             --success-color: #10b981;
             --navi-bg: #1e293b;
             --gold-color: #fbbf24;
+            --gray-color: #64748b;
         }
 
         body {
@@ -38,6 +39,7 @@
         .btn-success { background-color: var(--success-color); color: white; width: 100%; }
         .btn-danger { background-color: var(--danger-color); color: white; }
         .btn-outline { background-color: transparent; border: 2px solid #475569; color: white; width: 100%; }
+        .btn-undo { background-color: var(--gray-color); color: white; grid-column: span 3; padding: 12px; font-size: 16px; margin-top: 5px; }
 
         /* スコアボード */
         .player-row { display: flex; justify-content: space-between; align-items: center; padding: 12px; border-bottom: 1px solid #475569; }
@@ -72,7 +74,6 @@
 <div class="container">
     <h1>Mölkky Score Board</h1>
 
-    <!-- 1. モード選択画面 -->
     <div id="mode-screen" class="card">
         <h3>プレイモードを選択</h3>
         <button class="mode-select-btn" onclick="selectMode('local')">
@@ -91,7 +92,6 @@
         </button>
     </div>
 
-    <!-- 2. 合言葉入力画面 -->
     <div id="room-screen" class="card hidden">
         <h3>オンライン部屋の作成・参加</h3>
         <div class="input-group">
@@ -102,7 +102,6 @@
         <button class="btn-outline" onclick="backToMode()" style="margin-top:10px;">戻る</button>
     </div>
 
-    <!-- 3. プレイヤー登録画面 -->
     <div id="setup-screen" class="card hidden">
         <div id="room-display-setup" class="room-info-bar hidden"></div>
         <h3>プレイヤー登録</h3>
@@ -115,7 +114,6 @@
         <button class="btn-outline" id="back-from-setup" onclick="backToMode()" style="margin-top:10px;">戻る</button>
     </div>
 
-    <!-- 4. プレイ画面 -->
     <div id="play-screen" class="hidden">
         <div id="room-display-play" class="room-info-bar hidden"></div>
         <div class="card">
@@ -123,13 +121,11 @@
             <div id="scoreboard"></div>
         </div>
 
-        <!-- 最終結果表示 -->
         <div id="game-over-zone" class="hidden">
             <div class="winner-msg" id="winner-text"></div>
             <button class="btn-success" onclick="resetGame()">最初からやり直す</button>
         </div>
 
-        <!-- スコア入力用＆ナビパネル -->
         <div id="input-zone" class="card">
             <h3 id="current-turn-label" style="text-align: center; color: var(--accent-color); margin-bottom: 5px;"></h3>
             
@@ -152,17 +148,17 @@
                 <button class="btn-score" onclick="recordScore(11)">11</button>
                 <button class="btn-score" onclick="recordScore(12)">12</button>
                 <button class="btn-miss" onclick="recordScore(0)">❌ ミス（0点）</button>
+                
+                <button class="btn-undo" onclick="undoLastAction()">↩️ 1手戻す（入力を取り消す）</button>
             </div>
         </div>
     </div>
 </div>
 
-<!-- Firebase SDK の読み込み -->
 <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
     import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
-    // 🎯 あなたのFirebase情報を完全同期用にガッツリ組み込みました！
     const firebaseConfig = {
         apiKey: "AIzaSyAYknBIcO79OHCtiPFe6gprX4b1267tpno",
         authDomain: "morultuku-demo.firebaseapp.com",
@@ -174,27 +170,26 @@
         measurementId: "G-7CL48JRL0K"
     };
 
-    // Firebaseの初期化
     const app = initializeApp(firebaseConfig);
     const database = getDatabase(app);
 
-    // アプリの状態管理変数
     window.gameState = {
         mode: 'local', 
         roomId: '',
         players: [],
         currentPlayerIndex: 0,
         isGameOver: false,
-        rankCounter: 1
+        rankCounter: 1,
+        historyLog: [] // 巻き戻し用のログを記録する配列
     };
 
-    // グローバル関数として公開
     window.selectMode = selectMode;
     window.backToMode = backToMode;
     window.connectRoom = connectRoom;
     window.addPlayer = addPlayer;
     window.startGame = startGame;
     window.recordScore = recordScore;
+    window.undoLastAction = undoLastAction;
     window.resetGame = resetGame;
 
     function selectMode(mode) {
@@ -240,6 +235,7 @@
                 window.gameState.currentPlayerIndex = data.currentPlayerIndex || 0;
                 window.gameState.isGameOver = data.isGameOver || false;
                 window.gameState.rankCounter = data.rankCounter || 1;
+                window.gameState.historyLog = data.historyLog || [];
                 
                 if (data.isStarted) {
                     document.getElementById('setup-screen').classList.add('hidden');
@@ -261,7 +257,8 @@
             players: window.gameState.players,
             currentPlayerIndex: window.gameState.currentPlayerIndex,
             isGameOver: window.gameState.isGameOver,
-            rankCounter: window.gameState.rankCounter
+            rankCounter: window.gameState.rankCounter,
+            historyLog: window.gameState.historyLog
         });
     }
 
@@ -313,6 +310,16 @@
         if (window.gameState.isGameOver) return;
         
         let state = window.gameState;
+        
+        // 現時点の状態をバックアップログに保存（1手戻す用）
+        const snapshot = JSON.stringify({
+            players: state.players,
+            currentPlayerIndex: state.currentPlayerIndex,
+            isGameOver: state.isGameOver,
+            rankCounter: state.rankCounter
+        });
+        state.historyLog.push(snapshot);
+
         let player = state.players[state.currentPlayerIndex];
 
         if (points === 0) {
@@ -342,6 +349,35 @@
         if (!state.isGameOver) {
             nextTurn();
         }
+
+        if (state.mode === 'online') {
+            syncToFirebase(true);
+        } else {
+            updateDisplay();
+        }
+    }
+
+    // ↩️ 1手戻すロジック
+    function undoLastAction() {
+        let state = window.gameState;
+        if (!state.historyLog || state.historyLog.length === 0) {
+            alert("これ以上戻せません！");
+            return;
+        }
+
+        // ログから1個前の状態を取り出す
+        const lastStateJSON = state.historyLog.pop();
+        const lastState = JSON.parse(lastStateJSON);
+
+        // 状態を復元
+        state.players = lastState.players;
+        state.currentPlayerIndex = lastState.currentPlayerIndex;
+        state.isGameOver = lastState.isGameOver;
+        state.rankCounter = lastState.rankCounter;
+
+        // 画面の「ゲームオーバー表示」を隠して入力エリアを復活させる
+        document.getElementById('input-zone').classList.remove('hidden');
+        document.getElementById('game-over-zone').classList.add('hidden');
 
         if (state.mode === 'online') {
             syncToFirebase(true);
@@ -468,11 +504,12 @@
             window.gameState.currentPlayerIndex = 0;
             window.gameState.isGameOver = false;
             window.gameState.rankCounter = 1;
+            window.gameState.historyLog = [];
             syncToFirebase(false);
         }
         
         window.gameState = {
-            mode: 'local', roomId: '', players: [], currentPlayerIndex: 0, isGameOver: false, rankCounter: 1
+            mode: 'local', roomId: '', players: [], currentPlayerIndex: 0, isGameOver: false, rankCounter: 1, historyLog: []
         };
         
         document.getElementById('player-list-setup').innerHTML = 'まだ誰も登録されていません';
