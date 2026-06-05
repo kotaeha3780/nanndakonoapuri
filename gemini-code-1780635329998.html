@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>モルック スコアラー（オンライン同期対応）</title>
+    <style>
+        :root {
+            --bg-color: #1e293b;
+            --card-color: #334155;
+            --text-color: #f8fafc;
+            --accent-color: #38bdf8;
+            --danger-color: #f43f5e;
+            --success-color: #10b981;
+            --navi-bg: #1e293b;
+            --gold-color: #fbbf24;
+        }
+
+        body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .container { width: 100%; max-width: 500px; }
+        h1 { text-align: center; color: var(--accent-color); font-size: 24px; margin-bottom: 20px; }
+        .card { background-color: var(--card-color); border-radius: 12px; padding: 15px; margin-bottom: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.2); }
+        .input-group { display: flex; gap: 10px; margin-bottom: 10px; }
+        input[type="text"] { flex: 1; padding: 12px; border-radius: 8px; border: none; font-size: 16px; background-color: #475569; color: white; }
+        button { padding: 12px 20px; border-radius: 8px; border: none; font-weight: bold; font-size: 16px; cursor: pointer; transition: opacity 0.2s; }
+        button:active { opacity: 0.7; }
+        .btn-primary { background-color: var(--accent-color); color: #0f172a; }
+        .btn-success { background-color: var(--success-color); color: white; width: 100%; }
+        .btn-danger { background-color: var(--danger-color); color: white; }
+        .btn-outline { background-color: transparent; border: 2px solid #475569; color: white; width: 100%; }
+
+        /* スコアボード */
+        .player-row { display: flex; justify-content: space-between; align-items: center; padding: 12px; border-bottom: 1px solid #475569; }
+        .player-row.active { background-color: #475569; border-radius: 8px; border-left: 5px solid var(--accent-color); }
+        .player-row.finished { background-color: #1e293b; opacity: 0.7; border-left: 5px solid var(--gold-color); }
+        .player-row.eliminated { opacity: 0.4; text-decoration: line-through; }
+        .player-info { display: flex; flex-direction: column; flex: 1; padding-right: 10px; }
+        .player-name { font-weight: bold; font-size: 18px; }
+        .player-history { font-size: 12px; color: #cbd5e1; margin-top: 4px; word-break: break-all; }
+        .miss-count { color: var(--danger-color); font-size: 12px; margin-top: 2px;}
+        .player-score { font-size: 22px; font-weight: bold; color: var(--accent-color); text-align: right; white-space: nowrap; }
+        .rank-badge { background-color: var(--gold-color); color: #0f172a; font-size: 12px; padding: 2px 6px; border-radius: 4px; font-weight: bold; margin-left: 5px; }
+
+        /* ナビゲーション */
+        .navi-box { background-color: var(--navi-bg); border: 2px dashed #475569; border-radius: 10px; padding: 12px; margin-top: 10px; text-align: center; }
+        .navi-title { font-size: 14px; color: #94a3b8; margin-bottom: 5px; }
+        .navi-target { font-size: 18px; font-weight: bold; color: var(--gold-color); }
+
+        /* 入力パネル */
+        .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 15px; }
+        .btn-score { background-color: #475569; color: white; padding: 20px; font-size: 18px; border-radius: 10px; }
+        .btn-miss { grid-column: span 3; background-color: var(--danger-color); color: white; padding: 15px; font-size: 18px; }
+        .hidden { display: none; }
+        .winner-msg { text-align: center; font-size: 22px; color: var(--gold-color); font-weight: bold; margin: 20px 0; line-height: 1.5; }
+        
+        .mode-select-btn { padding: 20px; font-size: 18px; margin-bottom: 15px; width: 100%; text-align: left; background-color: #475569; color: white; border-radius: 10px; display: flex; justify-content: space-between; align-items: center;}
+        .room-info-bar { background-color: #0f172a; padding: 10px; border-radius: 6px; text-align: center; font-size: 14px; margin-bottom: 15px; color: var(--accent-color); font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Mölkky Score Board</h1>
+
+    <div id="mode-screen" class="card">
+        <h3>プレイモードを選択</h3>
+        <button class="mode-select-btn" onclick="selectMode('local')">
+            <div>
+                <strong>① ローカルモード</strong><br>
+                <span style="font-size:13px; color:#cbd5e1;">1台のスマホで全員分を記録する</span>
+            </div>
+            <span>▶</span>
+        </button>
+        <button class="mode-select-btn" onclick="selectMode('online')">
+            <div>
+                <strong>② オンライン同期モード</strong><br>
+                <span style="font-size:13px; color:#cbd5e1;">共通の合言葉で複数のスマホを同期する</span>
+            </div>
+            <span>▶</span>
+        </button>
+    </div>
+
+    <div id="room-screen" class="card hidden">
+        <h3>オンライン部屋の作成・参加</h3>
+        <div class="input-group">
+            <input type="text" id="room-id-input" placeholder="共通の合言葉（例：camp2026）">
+            <button class="btn-primary" onclick="connectRoom()">接続</button>
+        </div>
+        <p style="font-size: 13px; color:#94a3b8;">※一緒に遊ぶ人と全く同じ合言葉を入力してください。</p>
+        <button class="btn-outline" onclick="backToMode()" style="margin-top:10px;">戻る</button>
+    </div>
+
+    <div id="setup-screen" class="card hidden">
+        <div id="room-display-setup" class="room-info-bar hidden"></div>
+        <h3>プレイヤー登録</h3>
+        <div class="input-group" id="registration-form">
+            <input type="text" id="player-name-input" placeholder="名前を入力（例：たろう）">
+            <button class="btn-primary" onclick="addPlayer()">追加</button>
+        </div>
+        <div id="player-list-setup" style="margin: 15px 0;">まだ誰も登録されていません</div>
+        <button class="btn-success" id="start-game-btn" onclick="startGame()" style="display:none;">ゲーム開始！</button>
+        <button class="btn-outline" id="back-from-setup" onclick="backToMode()" style="margin-top:10px;">戻る</button>
+    </div>
+
+    <div id="play-screen" class="hidden">
+        <div id="room-display-play" class="room-info-bar hidden"></div>
+        <div class="card">
+            <h3>スコアボード</h3>
+            <div id="scoreboard"></div>
+        </div>
+
+        <div id="game-over-zone" class="hidden">
+            <div class="winner-msg" id="winner-text"></div>
+            <button class="btn-success" onclick="resetGame()">最初からやり直す</button>
+        </div>
+
+        <div id="input-zone" class="card">
+            <h3 id="current-turn-label" style="text-align: center; color: var(--accent-color); margin-bottom: 5px;"></h3>
+            
+            <div class="navi-box">
+                <div class="navi-title">💡 今回のターゲット</div>
+                <div class="navi-target" id="navi-text">計算中...</div>
+            </div>
+            
+            <div class="grid-3">
+                <button class="btn-score" onclick="recordScore(1)">1</button>
+                <button class="btn-score" onclick="recordScore(2)">2</button>
+                <button class="btn-score" onclick="recordScore(3)">3</button>
+                <button class="btn-score" onclick="recordScore(4)">4</button>
+                <button class="btn-score" onclick="recordScore(5)">5</button>
+                <button class="btn-score" onclick="recordScore(6)">6</button>
+                <button class="btn-score" onclick="recordScore(7)">7</button>
+                <button class="btn-score" onclick="recordScore(8)">8</button>
+                <button class="btn-score" onclick="recordScore(9)">9</button>
+                <button class="btn-score" onclick="recordScore(10)">10</button>
+                <button class="btn-score" onclick="recordScore(11)">11</button>
+                <button class="btn-score" onclick="recordScore(12)">12</button>
+                <button class="btn-miss" onclick="recordScore(0)">❌ ミス（0点）</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getDatabase, ref, set, onValue, update } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+
+    // 🎯 送っていただいた設定をここに反映しました！
+    const firebaseConfig = {
+        apiKey: "AIzaSyAYknBIcO79OHCtiPFe6gprX4b1267tpno",
+        authDomain: "morultuku-demo.firebaseapp.com",
+        databaseURL: "https://morultuku-demo-default-rtdb.asia-southeast1.firebasedatabase.app",
+        projectId: "morultuku-demo",
+        storageBucket: "morultuku-demo.firebasestorage.app",
+        messagingSenderId: "657360972125",
+        appId: "1:657360972125:web:f0805c8660468a770220b4",
+        measurementId: "G-7CL48JRL0K"
+    };
+
+    // Firebaseの初期化
+    const app = initializeApp(firebaseConfig);
+    const database = getDatabase(app);
+
+    // アプリの状態管理変数
+    window.gameState = {
+        mode: 'local', // 'local' or 'online'
+        roomId: '',
+        players: [],
+        currentPlayerIndex: 0,
+        isGameOver: false,
+        rankCounter: 1
+    };
+
+    // グローバル関数として公開
+    window.selectMode = selectMode;
+    window.backToMode = backToMode;
+    window.connectRoom = connectRoom;
+    window.addPlayer = addPlayer;
+    window.startGame = startGame;
+    window.recordScore = recordScore;
+    window.resetGame = resetGame;
+
+    function selectMode(mode) {
+        window.gameState.mode = mode;
+        document.getElementById('mode-screen').classList.add('hidden');
+        if (mode === 'online') {
+            document.getElementById('room-screen').classList.remove('hidden');
+        } else {
+            document.getElementById('setup-screen').classList.remove('hidden');
+            document.getElementById('room-display-setup').classList.add('hidden');
+            document.getElementById('registration-form').classList.remove('hidden');
+            renderSetupList();
+        }
+    }
+
+    function backToMode() {
+        document.getElementById('room-screen').classList.add('hidden');
+        document.getElementById('setup-screen').classList.add('hidden');
+        document.getElementById('mode-screen').classList.remove('hidden');
+    }
+
+    function connectRoom() {
+        const roomIdInput = document.getElementById('room-id-input');
+        const roomId = roomIdInput.value.trim();
+        if (!roomId) return alert("合言葉を入力してください。");
+
+        window.gameState.roomId = roomId;
+        document.getElementById('room-screen').classList.add('hidden');
+        document.getElementById('setup-screen').classList.remove('hidden');
+        
+        const infoBars = ['room-display-setup', 'room-display-play'];
+        infoBars.forEach(id => {
+            const el = document.getElementById(id);
+            el.innerText = `🟢 オンライン同期中 (合言葉: ${roomId})`;
+            el.classList.remove('hidden');
+        });
+
+        const roomRef = ref(database, 'rooms/' + roomId);
+        onValue(roomRef, (snapshot) => {
+            const data = snapshot.val();
+            if (data) {
+                window.gameState.players = data.players || [];
+                window.gameState.currentPlayerIndex = data.currentPlayerIndex || 0;
+                window.gameState.isGameOver = data.isGameOver || false;
+                window.gameState.rankCounter = data.rankCounter || 1;
+                
+                if (data.isStarted) {
+                    document.getElementById('setup-screen').classList.add('hidden');
+                    document.getElementById('play-screen').classList.remove('hidden');
+                    updateDisplay();
+                } else {
+                    renderSetupList();
+                }
+            } else {
+                syncToFirebase(false);
+            }
+        });
+    }
+
+    function syncToFirebase(isStarted = true) {
+        if (window.gameState.mode !== 'online') return;
+        set(ref(database, 'rooms/' + window.gameState.roomId), {
+            isStarted: isStarted,
+            players: window.gameState.players,
+            currentPlayerIndex: window.gameState.currentPlayerIndex,
+            isGameOver: window.gameState.isGameOver,
+            rankCounter: window.gameState.rankCounter
+        });
+    }
+
+    function addPlayer() {
+        const input = document.getElementById('player-name-input');
+        const name = input.value.trim();
+        if (!name) return;
+
+        window.gameState.players.push({
+            name: name, score: 0, missCount: 0,
+            isEliminated: false, isFinished: false,
+            rank: null, history: []
+        });
+
+        input.value = '';
+        if (window.gameState.mode === 'online') {
+            syncToFirebase(false);
+        } else {
+            renderSetupList();
+        }
+    }
+
+    function renderSetupList() {
+        const list = document.getElementById('player-list-setup');
+        const startBtn = document.getElementById('start-game-btn');
+        const players = window.gameState.players;
+
+        if (players.length === 0) {
+            list.innerHTML = 'まだ誰も登録されていません';
+            startBtn.style.display = 'none';
+            return;
+        }
+
+        list.innerHTML = players.map((p, i) => `<div>${i+1}. ${p.name}</div>`).join('');
+        startBtn.style.display = 'block';
+    }
+
+    function startGame() {
+        if (window.gameState.mode === 'online') {
+            syncToFirebase(true);
+        } else {
+            document.getElementById('setup-screen').classList.add('hidden');
+            document.getElementById('play-screen').classList.remove('hidden');
+            updateDisplay();
+        }
+    }
+
+    function recordScore(points) {
+        if (window.gameState.isGameOver) return;
+        
+        let state = window.gameState;
+        let player = state.players[state.currentPlayerIndex];
+
+        if (points === 0) {
+            player.missCount++;
+            player.history.push("❌");
+            if (player.missCount >= 3) {
+                player.isEliminated = true;
+                player.score = 0;
+            }
+        } else {
+            player.missCount = 0; 
+            player.score += points;
+            player.history.push(`+${points}`);
+
+            if (player.score === 50) {
+                player.isFinished = true;
+                player.rank = state.rankCounter++;
+            }
+            if (player.score > 50) {
+                player.score = 25;
+                player.history.push(`(超)→25`);
+            }
+        }
+
+        checkGameStatus();
+        
+        if (!state.isGameOver) {
+            nextTurn();
+        }
+
+        if (state.mode === 'online') {
+            syncToFirebase(true);
+        } else {
+            updateDisplay();
+        }
+    }
+
+    function nextTurn() {
+        let state = window.gameState;
+        let loopCount = 0;
+        do {
+            state.currentPlayerIndex = (state.currentPlayerIndex + 1) % state.players.length;
+            loopCount++;
+        } while ((state.players[state.currentPlayerIndex].isEliminated || state.players[state.currentPlayerIndex].isFinished) && loopCount <= state.players.length);
+    }
+
+    function checkGameStatus() {
+        let state = window.gameState;
+        const activePlayers = state.players.filter(p => !p.isEliminated && !p.isFinished);
+        if (activePlayers.length === 0) {
+            state.isGameOver = true;
+        }
+    }
+
+    function updateDisplay() {
+        let state = window.gameState;
+        
+        if (state.isGameOver) {
+            endGame();
+            return;
+        }
+
+        const scoreboard = document.getElementById('scoreboard');
+        scoreboard.innerHTML = state.players.map((p, i) => {
+            let className = "player-row";
+            let statusText = `${p.score} / 50 点`;
+            
+            if (i === state.currentPlayerIndex) className += " active";
+            if (p.isFinished) { className += " finished"; statusText = `✨ ゴール! (${p.rank}位)`; }
+            if (p.isEliminated) { className += " eliminated"; statusText = "💀 失格"; }
+
+            const historyText = p.history && p.history.length > 0 ? p.history.join(' → ') : 'まだ投げていません';
+
+            return `
+                <div class="${className}">
+                    <div class="player-info">
+                        <span class="player-name">
+                            ${p.name}
+                            ${p.rank ? `<span class="rank-badge">${p.rank}位</span>` : ''}
+                        </span>
+                        <div class="player-history">履歴: ${historyText}</div>
+                        <span class="miss-count">${p.missCount > 0 ? '❌'.repeat(p.missCount) : ''}</span>
+                    </div>
+                    <div class="player-score">${statusText}</div>
+                </div>
+            `;
+        }).join('');
+
+        const currentPlayer = state.players[state.currentPlayerIndex];
+        document.getElementById('current-turn-label').innerText = `次は ${currentPlayer.name} さんの番`;
+        updateNavigation(currentPlayer.score);
+    }
+
+    function updateNavigation(currentScore) {
+        const remaining = 50 - currentScore;
+        const naviTextElement = document.getElementById('navi-text');
+
+        if (remaining > 12) {
+            const nextTarget = remaining - 12;
+            if (nextTarget <= 12) {
+                naviTextElement.innerHTML = `あと ${remaining} 点（今回 ${nextTarget}点 取ると、次に12点であがれます）`;
+            } else {
+                naviTextElement.innerText = `あと ${remaining} 点（高得点を狙いましょう！）`;
+            }
+        } else if (remaining === 1) {
+            naviTextElement.innerHTML = `✨ リーチ！ 【 1番ピン 】を1本 又は 【 1本だけ 】！`;
+        } else {
+            naviTextElement.innerHTML = `✨ リーチ！ 【 ${remaining}番ピン 】を1本 又は 【 ${remaining}本 】！`;
+        }
+    }
+
+    function endGame() {
+        let state = window.gameState;
+        document.getElementById('input-zone').classList.add('hidden');
+        document.getElementById('game-over-zone').classList.remove('hidden');
+        
+        let results = [...state.players].sort((a, b) => {
+            if (a.isFinished && b.isFinished) return a.rank - b.rank;
+            if (a.isFinished) return -1;
+            if (b.isFinished) return 1;
+            return 0;
+        });
+
+        let resultHTML = "🏆 最終順位 🏆<br><br>";
+        results.forEach((p) => {
+            if (p.isFinished) {
+                resultHTML += `${p.rank}位: ${p.name} (ゴール)<br>`;
+            } else {
+                resultHTML += `失格: ${p.name}<br>`;
+            }
+        });
+
+        document.getElementById('winner-text').innerHTML = resultHTML;
+        
+        const scoreboard = document.getElementById('scoreboard');
+        scoreboard.innerHTML = state.players.map(p => {
+            let statusText = p.isFinished ? `✨ ${p.rank}位ゴール` : "💀 失格";
+            return `
+                <div class="player-row ${p.isFinished ? 'finished' : 'eliminated'}">
+                    <div class="player-info">
+                        <span class="player-name">${p.name}</span>
+                        <div class="player-history">履歴: ${p.history ? p.history.join(' → ') : ''}</div>
+                    </div>
+                    <div class="player-score">${statusText}</div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    function resetGame() {
+        if (window.gameState.mode === 'online') {
+            window.gameState.players = [];
+            window.gameState.currentPlayerIndex = 0;
+            window.gameState.isGameOver = false;
+            window.gameState.rankCounter = 1;
+            syncToFirebase(false);
+        }
+        
+        window.gameState = {
+            mode: 'local', roomId: '', players: [], currentPlayerIndex: 0, isGameOver: false, rankCounter: 1
+        };
+        
+        document.getElementById('player-list-setup').innerHTML = 'まだ誰も登録されていません';
+        document.getElementById('start-game-btn').style.display = 'none';
+        document.getElementById('setup-screen').classList.add('hidden');
+        document.getElementById('play-screen').classList.add('hidden');
+        document.getElementById('input-zone').classList.remove('hidden');
+        document.getElementById('game-over-zone').classList.add('hidden');
+        document.getElementById('mode-screen').classList.remove('hidden');
+    }
+</script>
+</body>
+</html>
