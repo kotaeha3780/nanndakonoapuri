@@ -180,7 +180,7 @@
         currentPlayerIndex: 0,
         isGameOver: false,
         rankCounter: 1,
-        historyLog: [] // 巻き戻し用のログを記録する配列
+        historyLog: []
     };
 
     window.selectMode = selectMode;
@@ -191,6 +191,8 @@
     window.recordScore = recordScore;
     window.undoLastAction = undoLastAction;
     window.resetGame = resetGame;
+
+    let isListening = false; // 二重同期防止用のフラグ
 
     function selectMode(mode) {
         window.gameState.mode = mode;
@@ -228,8 +230,28 @@
         });
 
         const roomRef = ref(database, 'rooms/' + roomId);
+        
+        if (isListening) return; // すでに監視中なら何もしない
+        isListening = true;
+
         onValue(roomRef, (snapshot) => {
             const data = snapshot.val();
+            const now = Date.now();
+
+            // ⏰ 10分自動大掃除ロジック
+            // もしデータが存在し、かつ最後の更新から10分（600,000ms）以上経過していたら強制リセット
+            if (data && data.updatedAt && (now - data.updatedAt > 600000)) {
+                console.log("10分以上アクセスがなかったため部屋を自動クリーンアップしました。");
+                window.gameState.players = [];
+                window.gameState.currentPlayerIndex = 0;
+                window.gameState.isGameOver = false;
+                window.gameState.rankCounter = 1;
+                window.gameState.historyLog = [];
+                syncToFirebase(false);
+                renderSetupList();
+                return;
+            }
+
             if (data) {
                 window.gameState.players = data.players || [];
                 window.gameState.currentPlayerIndex = data.currentPlayerIndex || 0;
@@ -258,7 +280,8 @@
             currentPlayerIndex: window.gameState.currentPlayerIndex,
             isGameOver: window.gameState.isGameOver,
             rankCounter: window.gameState.rankCounter,
-            historyLog: window.gameState.historyLog
+            historyLog: window.gameState.historyLog,
+            updatedAt: Date.now() // 最終更新時間を打刻
         });
     }
 
@@ -286,7 +309,7 @@
         const startBtn = document.getElementById('start-game-btn');
         const players = window.gameState.players;
 
-        if (players.length === 0) {
+        if (!players || players.length === 0) {
             list.innerHTML = 'まだ誰も登録されていません';
             startBtn.style.display = 'none';
             return;
@@ -311,7 +334,6 @@
         
         let state = window.gameState;
         
-        // 現時点の状態をバックアップログに保存（1手戻す用）
         const snapshot = JSON.stringify({
             players: state.players,
             currentPlayerIndex: state.currentPlayerIndex,
@@ -357,7 +379,6 @@
         }
     }
 
-    // ↩️ 1手戻すロジック
     function undoLastAction() {
         let state = window.gameState;
         if (!state.historyLog || state.historyLog.length === 0) {
@@ -365,17 +386,14 @@
             return;
         }
 
-        // ログから1個前の状態を取り出す
         const lastStateJSON = state.historyLog.pop();
         const lastState = JSON.parse(lastStateJSON);
 
-        // 状態を復元
         state.players = lastState.players;
         state.currentPlayerIndex = lastState.currentPlayerIndex;
         state.isGameOver = lastState.isGameOver;
         state.rankCounter = lastState.rankCounter;
 
-        // 画面の「ゲームオーバー表示」を隠して入力エリアを復活させる
         document.getElementById('input-zone').classList.remove('hidden');
         document.getElementById('game-over-zone').classList.add('hidden');
 
