@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>モルック スコアラー（ナビ付き）</title>
+    <style>
+        :root {
+            --bg-color: #1e293b;
+            --card-color: #334155;
+            --text-color: #f8fafc;
+            --accent-color: #38bdf8;
+            --danger-color: #f43f5e;
+            --success-color: #10b981;
+            --navi-bg: #1e293b;
+            --gold-color: #fbbf24;
+        }
+
+        body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 500px;
+        }
+
+        h1 {
+            text-align: center;
+            color: var(--accent-color);
+            font-size: 24px;
+            margin-bottom: 20px;
+        }
+
+        .card {
+            background-color: var(--card-color);
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 15px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+        }
+
+        /* プレイヤー追加エリア */
+        .input-group {
+            display: flex;
+            gap: 10px;
+        }
+
+        input[type="text"] {
+            flex: 1;
+            padding: 12px;
+            border-radius: 8px;
+            border: none;
+            font-size: 16px;
+            background-color: #475569;
+            color: white;
+        }
+
+        button {
+            padding: 12px 20px;
+            border-radius: 8px;
+            border: none;
+            font-weight: bold;
+            font-size: 16px;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+
+        button:active {
+            opacity: 0.7;
+        }
+
+        .btn-primary { background-color: var(--accent-color); color: #0f172a; }
+        .btn-success { background-color: var(--success-color); color: white; width: 100%; }
+        .btn-danger { background-color: var(--danger-color); color: white; }
+
+        /* スコアボード */
+        .player-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            border-bottom: 1px solid #475569;
+        }
+
+        .player-row.active {
+            background-color: #475569;
+            border-radius: 8px;
+            border-left: 5px solid var(--accent-color);
+        }
+
+        .player-row.eliminated {
+            opacity: 0.4;
+            text-decoration: line-through;
+        }
+
+        .player-info {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .player-name { font-weight: bold; font-size: 18px; }
+        .miss-count { color: var(--danger-color); font-size: 12px; }
+
+        .player-score {
+            font-size: 24px;
+            font-weight: bold;
+            color: var(--accent-color);
+        }
+
+        /* ナビゲーションエリア */
+        .navi-box {
+            background-color: var(--navi-bg);
+            border: 2px dashed #475569;
+            border-radius: 10px;
+            padding: 12px;
+            margin-top: 10px;
+            text-align: center;
+        }
+
+        .navi-title {
+            font-size: 14px;
+            color: #94a3b8;
+            margin-bottom: 5px;
+        }
+
+        .navi-target {
+            font-size: 20px;
+            font-weight: bold;
+            color: var(--gold-color);
+        }
+
+        /* 入力パネル */
+        .grid-3 {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .btn-score {
+            background-color: #475569;
+            color: white;
+            padding: 20px;
+            font-size: 18px;
+            border-radius: 10px;
+        }
+
+        .btn-miss {
+            grid-column: span 3;
+            background-color: var(--danger-color);
+            color: white;
+            padding: 15px;
+            font-size: 18px;
+        }
+
+        .hidden { display: none; }
+        
+        .winner-msg {
+            text-align: center;
+            font-size: 24px;
+            color: var(--success-color);
+            font-weight: bold;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Mölkky Score Board</h1>
+
+    <!-- 1. プレイヤー登録画面 -->
+    <div id="setup-screen" class="card">
+        <h3>プレイヤー登録</h3>
+        <div class="input-group">
+            <input type="text" id="player-name-input" placeholder="名前を入力（例：たろう）">
+            <button class="btn-primary" onclick="addPlayer()">追加</button>
+        </div>
+        <div id="player-list-setup" style="margin: 15px 0;"></div>
+        <button class="btn-success" id="start-game-btn" onclick="startGame()" style="display:none;">ゲーム開始！</button>
+    </div>
+
+    <!-- 2. プレイ画面 -->
+    <div id="play-screen" class="hidden">
+        <div class="card">
+            <h3>現在のスコア</h3>
+            <div id="scoreboard"></div>
+        </div>
+
+        <div id="game-over-zone" class="hidden">
+            <div class="winner-msg" id="winner-text"></div>
+            <button class="btn-success" onclick="resetGame()">もう一度遊ぶ</button>
+        </div>
+
+        <!-- スコア入力用＆ナビパネル -->
+        <div id="input-zone" class="card">
+            <h3 id="current-turn-label" style="text-align: center; color: var(--accent-color); margin-bottom: 5px;"></h3>
+            
+            <!-- 🎯 ナビゲーション表示エリア -->
+            <div class="navi-box">
+                <div class="navi-title">💡 あがりまでの最短ルート</div>
+                <div class="navi-target" id="navi-text">計算中...</div>
+            </div>
+            
+            <p style="font-size: 13px; text-align: center; color: #94a3b8; margin-top: 15px; margin-bottom: 5px;">
+                1本だけ倒した場合は【その番号】を、<br>複数本倒した場合は【その本数】をタップ
+            </p>
+            
+            <div class="grid-3">
+                <button class="btn-score" onclick="recordScore(1)">1</button>
+                <button class="btn-score" onclick="recordScore(2)">2</button>
+                <button class="btn-score" onclick="recordScore(3)">3</button>
+                <button class="btn-score" onclick="recordScore(4)">4</button>
+                <button class="btn-score" onclick="recordScore(5)">5</button>
+                <button class="btn-score" onclick="recordScore(6)">6</button>
+                <button class="btn-score" onclick="recordScore(7)">7</button>
+                <button class="btn-score" onclick="recordScore(8)">8</button>
+                <button class="btn-score" onclick="recordScore(9)">9</button>
+                <button class="btn-score" onclick="recordScore(10)">10</button>
+                <button class="btn-score" onclick="recordScore(11)">11</button>
+                <button class="btn-score" onclick="recordScore(12)">12</button>
+                <button class="btn-miss" onclick="recordScore(0)">❌ ミス（0点）</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let players = [];
+    let currentPlayerIndex = 0;
+    let isGameOver = false;
+
+    function addPlayer() {
+        const input = document.getElementById('player-name-input');
+        const name = input.value.trim();
+        if (!name) return;
+
+        players.push({
+            name: name,
+            score: 0,
+            missCount: 0,
+            isEliminated: false
+        });
+
+        input.value = '';
+        renderSetupList();
+        
+        if (players.length >= 1) {
+            document.getElementById('start-game-btn').style.display = 'block';
+        }
+    }
+
+    function renderSetupList() {
+        const list = document.getElementById('player-list-setup');
+        list.innerHTML = players.map((p, i) => `<div>${i+1}. ${p.name}</div>`).join('');
+    }
+
+    function startGame() {
+        document.getElementById('setup-screen').classList.add('hidden');
+        document.getElementById('play-screen').classList.remove('hidden');
+        updateDisplay();
+    }
+
+    function recordScore(points) {
+        if (isGameOver) return;
+        
+        let player = players[currentPlayerIndex];
+
+        if (points === 0) {
+            player.missCount++;
+            if (player.missCount >= 3) {
+                player.isEliminated = true;
+                player.score = 0;
+                alert(`${player.name} さんは3回連続ミスで失格になりました...`);
+            }
+        } else {
+            player.missCount = 0; 
+            player.score += points;
+
+            if (player.score === 50) {
+                endGame(player.name);
+                return;
+            }
+            if (player.score > 50) {
+                alert(`${player.name} さんが50点を超えました！25点に減点されます。`);
+                player.score = 25;
+            }
+        }
+
+        nextTurn();
+        updateDisplay();
+    }
+
+    function nextTurn() {
+        const activePlayers = players.filter(p => !p.isEliminated);
+        if (activePlayers.length === 0) {
+            endGame("全員失格（引き分け）");
+            return;
+        }
+
+        do {
+            currentPlayerIndex = (currentPlayerIndex + 1) % players.length;
+        } while (players[currentPlayerIndex].isEliminated);
+    }
+
+    function updateDisplay() {
+        if (isGameOver) return;
+
+        // スコアボードの更新
+        const scoreboard = document.getElementById('scoreboard');
+        scoreboard.innerHTML = players.map((p, i) => {
+            let className = "player-row";
+            if (i === currentPlayerIndex) className += " active";
+            if (p.isEliminated) className += " eliminated";
+
+            return `
+                <div class="${className}">
+                    <div class="player-info">
+                        <span class="player-name">${p.name}</span>
+                        <span class="miss-count">${p.missCount > 0 ? '❌'.repeat(p.missCount) : ''}</span>
+                    </div>
+                    <div class="player-score">${p.score} / 50 点</div>
+                </div>
+            `;
+        }).join('');
+
+        // ターン表示の更新
+        const currentPlayer = players[currentPlayerIndex];
+        document.getElementById('current-turn-label').innerText = `次は ${currentPlayer.name} さんの番`;
+
+        // 🎯 最適ナビゲーションの計算と表示
+        updateNavigation(currentPlayer.score);
+    }
+
+    // ナビゲーションのロジック
+    function updateNavigation(currentScore) {
+        const remaining = 50 - currentScore;
+        const naviTextElement = document.getElementById('navi-text');
+
+        if (remaining > 12) {
+            // 残り13点以上：1発では上がれないので、次のターンに繋げるアドバイス
+            // 次に12点を取った場合に綺麗に上がれる「目標の数字」を提案してみる
+            const nextTarget = remaining - 12;
+            if (nextTarget <= 12) {
+                naviTextElement.innerHTML = `あと ${remaining} 点（例：今回 ${nextTarget}点 取ると、次ターンに12番ピンで上がれます）`;
+            } else {
+                naviTextElement.innerText = `あと ${remaining} 点（まずは高得点を狙おう！）`;
+            }
+        } else if (remaining === 1) {
+            // 残り1点：1番ピンを1本倒すか、どれでも1本倒す
+            naviTextElement.innerHTML = `✨ リーチ！ 【 1番ピン 】を1本 又は 【 1本だけ 】倒す！`;
+        } else {
+            // 残り2点〜12点：一発あがりのチャンス！
+            naviTextElement.innerHTML = `✨ リーチ！ 【 ${remaining}番ピン 】を1本 又は 【 ${remaining}本 】倒す！`;
+        }
+    }
+
+    function endGame(winnerName) {
+        isGameOver = true;
+        document.getElementById('input-zone').classList.add('hidden');
+        document.getElementById('game-over-zone').classList.remove('hidden');
+        
+        if (winnerName.includes("全員失格")) {
+            document.getElementById('winner-text').innerText = winnerName;
+        } else {
+            document.getElementById('winner-text').innerText = `🎉 優勝：${winnerName} さん！`;
+        }
+    }
+
+    function resetGame() {
+        players = [];
+        currentPlayerIndex = 0;
+        isGameOver = false;
+        
+        document.getElementById('player-list-setup').innerHTML = '';
+        document.getElementById('start-game-btn').style.display = 'none';
+        document.getElementById('setup-screen').classList.remove('hidden');
+        document.getElementById('play-screen').classList.add('hidden');
+        document.getElementById('input-zone').classList.remove('hidden');
+        document.getElementById('game-over-zone').classList.add('hidden');
+    }
+</script>
+</body>
+</html>
